@@ -291,7 +291,17 @@
 </head>
 <body>
     <aside>
-        <div class="logo">AGENT_V2 // C2</div>
+        <div class="brand">
+            AGENT_V2 // C2
+        </div>
+        
+        <div style="padding: 0 15px 15px 15px;">
+            <label style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; font-weight: 700; margin-bottom: 5px; display: block;">Target Device</label>
+            <select id="device-selector" style="width: 100%; padding: 8px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text); border-radius: 4px; font-family: 'Inter', sans-serif; font-size: 13px;">
+                <option value="ALL">All Devices</option>
+            </select>
+        </div>
+
         <nav>
             <button class="nav-btn active" data-view="dashboard">Overview</button>
             <button class="nav-btn" data-view="recordings">Recordings</button>

