@@ -220,10 +220,14 @@ function renderRecordingsTable(recordings) {
         row.querySelector('.btn-delete-rec').onclick = async () => {
             if (confirm(`Permanently delete this recording: ${prettyDate}?`)) {
                 log(`Deleting ${file.name}...`);
-                const { error: delErr } = await client.storage.from('recordings').remove([file.name]);
+                const { data, error: delErr } = await client.storage.from('recordings').remove([file.name]);
                 if (delErr) log(`Delete Error: ${delErr.message}`);
                 else {
-                    log("Deleted successfully.");
+                    if (data && data.length === 0) {
+                        alert("Delete failed! Your Supabase RLS policy is blocking it. Please go to Supabase Dashboard > Storage > Policies and allow DELETE for the 'recordings' bucket.");
+                    } else {
+                        log("Deleted successfully.");
+                    }
                     loadRecordings();
                 }
             }
@@ -373,9 +377,14 @@ async function loadPhotos() {
 
         row.querySelector('.btn-del-photo').onclick = async () => {
             if (confirm("Permanently delete this photo?")) {
-                const { error: delErr } = await client.storage.from('photos').remove([file.name]);
+                const { data, error: delErr } = await client.storage.from('photos').remove([file.name]);
                 if (delErr) log(`Del Err: ${delErr.message}`);
-                else loadPhotos();
+                else {
+                    if (data && data.length === 0) {
+                        alert("Delete failed! Your Supabase RLS policy is blocking it. Please go to Supabase Dashboard > Storage > Policies and allow DELETE for the 'photos' bucket.");
+                    }
+                    loadPhotos();
+                }
             }
         };
 
@@ -456,9 +465,13 @@ async function loadVault() {
 async function deleteVaultFile(name) {
     if (confirm(`Delete ${name} from Vault?`)) {
         log(`VAULT: Deleting ${name}...`);
-        const { error } = await client.storage.from('files').remove([name]);
+        const { data, error } = await client.storage.from('files').remove([name]);
         if (!error) {
-            log(`VAULT: Deleted ${name} successfully.`);
+            if (data && data.length === 0) {
+                alert("Delete failed! Your Supabase RLS policy is blocking it. Please go to Supabase Dashboard > Storage > Policies and allow DELETE for the 'files' bucket.");
+            } else {
+                log(`VAULT: Deleted ${name} successfully.`);
+            }
             loadVault();
         }
         else log(`Vault Delete Error: ${error.message}`);
