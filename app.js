@@ -248,6 +248,8 @@ async function deleteNotification(id) {
     else loadNotifications();
 }
 
+let cachedNotifications = [];
+
 async function loadNotifications() {
     const { data, error } = await client
         .from('notifier_data')
@@ -255,33 +257,73 @@ async function loadNotifications() {
         .order('created_at', { ascending: false });
     if (error) return;
 
+    cachedNotifications = data;
+    renderNotifications(cachedNotifications);
+}
+
+function renderNotifications(data) {
     notifList.innerHTML = '';
     if (data.length === 0) {
-        notifList.innerHTML = '<div class="card"><span style="color:var(--text-dim)">No notifications yet.</span></div>';
+        notifList.innerHTML = '<div class="card"><span style="color:var(--text-dim)">No notifications found.</span></div>';
         return;
     }
 
     data.forEach(notif => {
-        const time = new Date(notif.created_at).toLocaleTimeString();
+        const time = new Date(notif.created_at).toLocaleString();
+        const appName = (notif.package_name || '').split('.').pop().toUpperCase() || 'SYSTEM';
+
         const item = document.createElement('div');
         item.className = 'card notif-card';
         item.style.marginBottom = '12px';
+        item.style.transition = 'all 0.2s ease';
+        item.style.cursor = 'default';
         item.innerHTML = `
-            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                <span style="color:var(--primary); font-family:JetBrains Mono; font-size:11px;">${notif.package_name}</span>
-                <div style="display:flex; gap:10px; align-items:center;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px; align-items: center;">
+                <span style="color:var(--primary); font-family:'JetBrains Mono', monospace; font-size:11px; padding: 4px 8px; background: rgba(124, 58, 237, 0.1); border-radius: 4px; border: 1px solid rgba(124, 58, 237, 0.2);">${appName}</span>
+                <div style="display:flex; gap:15px; align-items:center;">
                     <span style="color:var(--text-dim); font-size:11px;">${time}</span>
-                    <span class="btn-delete-notif" style="cursor:pointer; color:#ff4757; font-weight:bold; font-size:14px;">&times;</span>
+                    <span class="btn-delete-notif" style="cursor:pointer; color:var(--danger); font-size:16px; opacity: 0.5; transition: 0.2s;">&times;</span>
                 </div>
             </div>
-            <div style="font-weight:700; font-size:14px; margin-bottom:2px;">${notif.title}</div>
-            <div style="font-size:13px; color:var(--text-dim);">${notif.content}</div>
+            <div style="font-weight:700; font-size:15px; margin-bottom:4px; color: var(--text);">${notif.title}</div>
+            <div style="font-size:13px; color:var(--text-dim); line-height: 1.5;">${notif.content}</div>
         `;
         
+        item.addEventListener('mouseenter', () => {
+            item.style.transform = 'translateY(-2px)';
+            item.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)';
+            item.style.borderColor = 'rgba(124, 58, 237, 0.3)';
+            item.querySelector('.btn-delete-notif').style.opacity = '1';
+        });
+        item.addEventListener('mouseleave', () => {
+            item.style.transform = 'translateY(0)';
+            item.style.boxShadow = 'none';
+            item.style.borderColor = 'var(--border)';
+            item.querySelector('.btn-delete-notif').style.opacity = '0.5';
+        });
+
         item.querySelector('.btn-delete-notif').onclick = () => deleteNotification(notif.id);
         
         notifList.appendChild(item);
     });
+}
+
+const searchNotifsInput = document.getElementById('search-notifications');
+if(searchNotifsInput) {
+    searchNotifsInput.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        const filtered = cachedNotifications.filter(n => {
+            return (n.title || '').toLowerCase().includes(term) || 
+                   (n.content || '').toLowerCase().includes(term) || 
+                   (n.package_name || '').toLowerCase().includes(term);
+        });
+        renderNotifications(filtered);
+    });
+}
+
+const btnRefreshNotifs = document.getElementById('btn-refresh-notifs');
+if(btnRefreshNotifs) {
+    btnRefreshNotifs.addEventListener('click', loadNotifications);
 }
 
 // Camera Logic (Dashboard side)
@@ -643,7 +685,9 @@ setInterval(() => {
     if (searchInput.value === '') {
         loadRecordings();
     }
-    loadNotifications();
+    if (searchNotifsInput && searchNotifsInput.value === '') {
+        loadNotifications();
+    }
     if (mapInitialized) {
         loadLastLocation();
     }
